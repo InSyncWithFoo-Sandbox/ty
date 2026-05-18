@@ -1,0 +1,69 @@
+name: Build ty
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Synchronize with upstream
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Fetch sources
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+      - run: |
+          git log -1
+
+          git config --global user.name "InSyncWithFoo"
+          git config --global user.email "122007197+InSyncWithFoo@users.noreply.github.com"
+
+          git remote add upstream https://github.com/astral-sh/ruff
+          git fetch upstream main --depth=50000
+
+          WORKFLOW_FILE=$(cat .github/workflows/build-ty.yaml)
+          git reset --hard upstream/main
+          echo "$WORKFLOW_FILE" >> .github/workflows/build-ty.yaml
+
+          git add .
+          git commit -m "Build ty daily"
+          git push -f
+
+  build:
+    name: Build ty
+    needs: [sync]
+
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+
+    permissions:
+      actions: write
+
+    steps:
+      - name: Fetch sources
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          RUSTFLAGS="$RUSTFLAGS -A warnings" cargo build --package ty --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ty-${{ matrix.platform }}
+          path: ./target/release/ty${{ matrix.platform == 'windows-latest' && '.exe' || '' }}
